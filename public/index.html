@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Workin - Verified Voice Labour Marketplace (Tamil Nadu)</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <!-- Top Header Navigation -->
+  <header>
+    <div class="header-container">
+      <div class="brand">
+        <div class="logo-badge">W</div>
+        <div>
+          <h1>Workin <span class="sub-tag">Tamil Nadu Labour Marketplace</span></h1>
+        </div>
+      </div>
+
+      <!-- User Role Switcher -->
+      <div class="role-switcher">
+        <button id="role-employer" class="role-btn active" onclick="switchRole('employer')">
+          👔 Employer Portal
+        </button>
+        <button id="role-worker" class="role-btn worker" onclick="switchRole('worker')">
+          👷 Worker View (Free)
+        </button>
+        <button id="role-admin" class="role-btn" onclick="switchRole('admin')">
+          📊 Admin Revenue
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <!-- Voice Prompt Assistant Banner -->
+    <section class="voice-banner">
+      <div class="voice-info">
+        <h2 id="voice-title">🎤 Voice Assistant / குரல் உதவி</h2>
+        <p id="voice-desc">Say: "Need 2 catering assistants in Madurai for ₹1000 per day"</p>
+      </div>
+      <button class="mic-btn" id="mic-btn" title="Click to Speak" onclick="toggleVoiceRecording()">
+        🎙️
+      </button>
+    </section>
+
+    <!-- EMPLOYER PORTAL VIEW -->
+    <section id="view-employer">
+      
+      <!-- REQUIRED FEATURE NOTE: Clear Commission Note for Employers -->
+      <div class="commission-note-box">
+        <div class="note-icon">💡</div>
+        <div class="note-content">
+          <h3>Workin Employer Payment Terms</h3>
+          <p>
+            You pay a small commission <strong>(8% of wage)</strong> ONLY after the job is successfully completed. 
+            Workers never pay anything — Workin is 100% free for workers.
+          </p>
+          <span class="note-badge">Post Free • Pay Only On Completion</span>
+        </div>
+      </div>
+
+      <!-- Navigation Tabs inside Employer Portal -->
+      <div class="tabs">
+        <button class="tab-btn active" id="tab-jobs" onclick="switchEmployerTab('jobs')">📋 Active Jobs & Post Job</button>
+        <button class="tab-btn" id="tab-payments" onclick="switchEmployerTab('payments')">💳 My Payments</button>
+      </div>
+
+      <!-- TAB 1: Active Jobs & Job Post Form -->
+      <div id="employer-tab-jobs" class="layout-grid">
+        
+        <!-- Post Job Form -->
+        <div class="card">
+          <div class="card-title">
+            <span>➕ Post a New Requirement</span>
+          </div>
+
+          <form id="post-job-form" onsubmit="handlePostJob(event)">
+            <div class="form-group">
+              <label for="employer-select">Posting Employer</label>
+              <select id="employer-select" class="form-control" required onchange="updateCalcPreview()">
+                <option value="1">Annamalai Wedding Hall (Mandapam)</option>
+                <option value="2" selected>Sri Balaji Catering Services (Caterer)</option>
+                <option value="3">Vetri Builders (Contractor)</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label for="job-title">Job Title / Work Required</label>
+              <input type="text" id="job-title" class="form-control" placeholder="e.g. Wedding Reception Helper" required>
+            </div>
+
+            <div class="form-group">
+              <label for="job-category">Category</label>
+              <select id="job-category" class="form-control" required>
+                <option value="Mandapam Event">Mandapam Event</option>
+                <option value="Catering" selected>Catering Service</option>
+                <option value="Construction">Construction / Civil</option>
+                <option value="General Labour">General Daily Labour</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label for="wage-amount">Agreed Wage Amount (₹ per worker)</label>
+              <input type="number" id="wage-amount" class="form-control" value="1000" min="100" step="50" required oninput="updateCalcPreview()">
+            </div>
+
+            <!-- Dynamic Commission Live Breakdown Preview -->
+            <div class="calc-preview-box">
+              <div class="calc-row">
+                <span>Worker Wage:</span>
+                <strong id="preview-wage">₹1000</strong>
+              </div>
+              <div class="calc-row">
+                <span>Commission (8%):</span>
+                <strong id="preview-commission">₹80</strong>
+              </div>
+              <div class="calc-row total">
+                <span>Total Due on Completion:</span>
+                <strong id="preview-total">₹1080</strong>
+              </div>
+              <div style="font-size:0.75rem; color:#64748b; margin-top:4px;">
+                * No charge today. Amount due only after job is completed.
+              </div>
+            </div>
+
+            <div class="form-group" style="margin-top: 1.25rem;">
+              <label for="job-location">Location (District / Town)</label>
+              <input type="text" id="job-location" class="form-control" value="Madurai" required>
+            </div>
+
+            <button type="submit" class="btn btn-primary">
+              📢 Post Job (No Upfront Fee)
+            </button>
+          </form>
+        </div>
+
+        <!-- Jobs List for Employer -->
+        <div>
+          <div class="card">
+            <div class="card-title">
+              <span>📌 Jobs & Confirmation Status</span>
+              <button class="btn btn-outline" style="width: auto; padding: 0.3rem 0.8rem; font-size: 0.85rem;" onclick="loadJobs()">🔄 Refresh</button>
+            </div>
+
+            <div id="employer-job-list" class="job-list">
+              <!-- Dynamically Populated -->
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 2: STEP 3 "My Payments" Transaction History -->
+      <div id="employer-tab-payments" style="display: none;">
+        <div class="card">
+          <div class="card-title">
+            <span>💳 My Payments & Transaction History</span>
+          </div>
+
+          <div id="payment-summary-header" class="stats-grid">
+            <div class="stat-card primary">
+              <h4>Total Completed Jobs</h4>
+              <div class="value" id="emp-stat-jobs">0</div>
+            </div>
+            <div class="stat-card warning">
+              <h4>Pending Commission</h4>
+              <div class="value" id="emp-stat-pending">₹0</div>
+            </div>
+            <div class="stat-card success">
+              <h4>Total Paid</h4>
+              <div class="value" id="emp-stat-paid">₹0</div>
+            </div>
+          </div>
+
+          <div style="overflow-x: auto;">
+            <table class="payments-table">
+              <thead>
+                <tr>
+                  <th>Tx ID</th>
+                  <th>Job Title</th>
+                  <th>Worker Name</th>
+                  <th>Date</th>
+                  <th>Wage Amount</th>
+                  <th>Commission (8%)</th>
+                  <th>Total Amount</th>
+                  <th>Status / Action</th>
+                </tr>
+              </thead>
+              <tbody id="payments-table-body">
+                <!-- Dynamically Populated -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- WORKER PORTAL VIEW (Completely Free & Zero Commission UI) -->
+    <section id="view-worker" style="display: none;">
+      <div class="commission-note-box" style="background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%); border-color: #a7f3d0; border-left-color: var(--accent);">
+        <div class="note-icon">👷</div>
+        <div class="note-content">
+          <h3 style="color: #065f46;">Workin Worker Guarantee</h3>
+          <p style="color: #047857;">
+            Workin is 100% FREE for workers. You receive 100% of your agreed wage directly. Zero deductions, zero fees.
+          </p>
+          <span class="note-badge" style="background: var(--accent);">100% Free For Daily Wage Workers</span>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">
+          <span>💼 Available Jobs Near You (Tamil Nadu)</span>
+        </div>
+
+        <div id="worker-job-list" class="job-list">
+          <!-- Dynamically Populated (Worker View — No commission UI) -->
+        </div>
+      </div>
+    </section>
+
+    <!-- ADMIN REVENUE DASHBOARD VIEW -->
+    <section id="view-admin" style="display: none;">
+      <div class="card">
+        <div class="card-title">
+          <span>📊 Platform Revenue & Internal Tracking Dashboard</span>
+          <button class="btn btn-outline" style="width: auto; padding: 0.3rem 0.8rem; font-size: 0.85rem;" onclick="loadAdminRevenue()">🔄 Refresh Dashboard</button>
+        </div>
+
+        <div class="stats-grid">
+          <div class="stat-card">
+            <h4>Total Completed Transactions</h4>
+            <div class="value" id="admin-stat-count">0</div>
+          </div>
+          <div class="stat-card primary">
+            <h4>Total Job Wages Transacted</h4>
+            <div class="value" id="admin-stat-wages">₹0</div>
+          </div>
+          <div class="stat-card success">
+            <h4>Total Commission Earned (8%)</h4>
+            <div class="value" id="admin-stat-commission">₹0</div>
+          </div>
+          <div class="stat-card warning">
+            <h4>Pending Payment Collection</h4>
+            <div class="value" id="admin-stat-pending">₹0</div>
+          </div>
+        </div>
+
+        <h3 style="font-size: 1.1rem; margin-top: 1.5rem; margin-bottom: 0.75rem;">Recent Platform Transactions</h3>
+        <div style="overflow-x: auto;">
+          <table class="payments-table">
+            <thead>
+              <tr>
+                <th>Job Title</th>
+                <th>Employer</th>
+                <th>Worker</th>
+                <th>Wage</th>
+                <th>Commission (8%)</th>
+                <th>Total</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="admin-transactions-body">
+              <!-- Dynamically Populated -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Payment Summary Modal (After Job Completion / Pay Now) -->
+  <div class="modal-overlay" id="payment-modal">
+    <div class="modal-box">
+      <div class="modal-header">
+        <span>🎉 Job Completed - Payment Summary</span>
+        <button class="close-btn" onclick="closeModal()">&times;</button>
+      </div>
+
+      <p style="font-size: 0.9rem; color: var(--text-muted);" id="modal-subtext">
+        Both employer and worker have confirmed completion. Here is the payment summary for your records:
+      </p>
+
+      <div class="summary-table">
+        <div class="summary-row">
+          <span>Worker Agreed Wage:</span>
+          <strong id="modal-wage">₹0</strong>
+        </div>
+        <div class="summary-row">
+          <span>Platform Commission (<span id="modal-rate">8%</span>):</span>
+          <strong id="modal-commission">₹0</strong>
+        </div>
+        <div class="summary-row total">
+          <span>Total Amount:</span>
+          <strong id="modal-total">₹0</strong>
+        </div>
+      </div>
+
+      <div id="modal-action-area">
+        <button class="btn btn-success" id="pay-now-btn" onclick="executePayNow()">
+          💳 Pay Now (UPI / Razorpay MVP)
+        </button>
+        <button class="btn btn-outline" style="margin-top: 0.5rem;" onclick="closeModal()">
+          Close
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
