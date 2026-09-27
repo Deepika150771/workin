@@ -3,6 +3,33 @@ let activeEmployerId = 1;
 let currentTransactionId = null;
 let currentJobForPayment = null;
 
+// Safe API Fetching Helper
+async function fetchJson(url, options = {}) {
+  const res = await fetch(url, options);
+  const contentType = res.headers.get('content-type') || '';
+
+  if (!res.ok) {
+    let errorMsg = `Server error (${res.status})`;
+    if (contentType.includes('application/json')) {
+      try {
+        const errData = await res.json();
+        errorMsg = errData.error || errorMsg;
+      } catch (e) {}
+    } else {
+      const text = await res.text();
+      if (text) errorMsg = text.substring(0, 150);
+    }
+    throw new Error(errorMsg);
+  }
+
+  if (!contentType.includes('application/json')) {
+    const text = await res.text();
+    throw new Error(`Invalid server response: ${text.substring(0, 100)}`);
+  }
+
+  return await res.json();
+}
+
 // Initialize App
 document.addEventListener('DOMContentLoaded', () => {
   updateCalcPreview();
@@ -80,7 +107,7 @@ async function handlePostJob(e) {
   const location = document.getElementById('job-location').value.trim();
 
   try {
-    const res = await fetch('/api/jobs', {
+    const data = await fetchJson('/api/jobs', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -92,9 +119,6 @@ async function handlePostJob(e) {
         custom_commission_rate: 0.08
       })
     });
-
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Failed to post job');
 
     alert(`✅ Job Posted Successfully!\n\n${data.note}`);
     document.getElementById('job-title').value = '';
@@ -110,8 +134,7 @@ async function loadJobs() {
   container.innerHTML = '<div style="text-align:center; padding: 2rem; color: #64748b;">Loading jobs...</div>';
 
   try {
-    const res = await fetch('/api/jobs');
-    const jobs = await res.json();
+    const jobs = await fetchJson('/api/jobs');
 
     if (!Array.isArray(jobs) || jobs.length === 0) {
       container.innerHTML = '<div style="text-align:center; padding: 2rem; color: #64748b;">No jobs posted yet. Post your first job above!</div>';
@@ -189,14 +212,11 @@ async function loadJobs() {
 // Complete Job Action (Two-Way Confirmation)
 async function completeJob(jobId, confirmedBy = 'both') {
   try {
-    const res = await fetch(`/api/jobs/${jobId}/complete`, {
+    const data = await fetchJson(`/api/jobs/${jobId}/complete`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ confirmed_by: confirmedBy })
     });
-
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Failed to complete job');
 
     if (data.transaction_summary) {
       const ts = data.transaction_summary;
@@ -228,21 +248,19 @@ function openPaymentSummaryModal(jobId, wage, commission, total, txId = null) {
 
   // If txId not provided, fetch transactions to find txId
   if (!txId) {
-    fetch('/api/jobs')
-      .then(r => r.json())
+    fetchJson('/api/jobs')
       .then(jobs => {
         const j = jobs.find(x => x.id === jobId);
         if (j && j.employer_id) {
-          fetch(`/api/employer/${j.employer_id}/transactions`)
-            .then(r => r.json())
+          fetchJson(`/api/employer/${j.employer_id}/transactions`)
             .then(txData => {
-              const matchedTx = txData.transactions.find(t => t.job_id === jobId);
+              const matchedTx = (txData.transactions || []).find(t => t.job_id === jobId);
               if (matchedTx) {
                 currentTransactionId = matchedTx.id;
               }
-            });
+            }).catch(e => console.error(e));
         }
-      });
+      }).catch(e => console.error(e));
   }
 }
 
@@ -255,13 +273,11 @@ async function executePayNow() {
   if (!currentTransactionId) {
     // If no transaction ID cached, find transaction for current job
     try {
-      const resJobs = await fetch('/api/jobs');
-      const jobs = await resJobs.json();
+      const jobs = await fetchJson('/api/jobs');
       const j = jobs.find(x => x.id === currentJobForPayment);
       if (j) {
-        const resTx = await fetch(`/api/employer/${j.employer_id}/transactions`);
-        const txData = await resTx.json();
-        const found = txData.transactions.find(t => t.job_id === currentJobForPayment);
+        const txData = await fetchJson(`/api/employer/${j.employer_id}/transactions`);
+        const found = (txData.transactions || []).find(t => t.job_id === currentJobForPayment);
         if (found) currentTransactionId = found.id;
       }
     } catch (e) {
@@ -277,11 +293,9 @@ async function executePayNow() {
   }
 
   try {
-    const res = await fetch(`/api/transactions/${currentTransactionId}/pay`, {
+    const data = await fetchJson(`/api/transactions/${currentTransactionId}/pay`, {
       method: 'POST'
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Payment failed');
 
     alert(`🎉 Payment Successful!\n\n${data.message}\nTransaction #${data.transaction.id} status is now Paid.`);
     closeModal();
@@ -301,10 +315,9 @@ async function loadEmployerTransactions() {
   tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;">Loading payment history...</td></tr>';
 
   try {
-    const res = await fetch(`/api/employer/${empId}/transactions`);
-    const data = await res.json();
+    const data = await fetchJson(`/api/employer/${empId}/transactions`);
 
-    const summary = data.summary;
+    const summary = data.summary || { total_jobs: 0, total_pending: 0, total_paid: 0 };
     document.getElementById('emp-stat-jobs').innerText = summary.total_jobs;
     document.getElementById('emp-stat-pending').innerText = `₹${summary.total_pending.toLocaleString()}`;
     document.getElementById('emp-stat-paid').innerText = `₹${summary.total_paid.toLocaleString()}`;
@@ -355,8 +368,7 @@ async function loadWorkerJobs() {
   container.innerHTML = '<div style="text-align:center; padding: 2rem;">Loading worker opportunities...</div>';
 
   try {
-    const res = await fetch('/api/jobs');
-    const jobs = await res.json();
+    const jobs = await fetchJson('/api/jobs');
 
     if (!Array.isArray(jobs) || jobs.length === 0) {
       container.innerHTML = '<div style="text-align:center; padding: 2rem;">No open jobs available right now.</div>';
@@ -408,14 +420,13 @@ async function loadWorkerJobs() {
 // ADMIN REVENUE DASHBOARD
 async function loadAdminRevenue() {
   try {
-    const res = await fetch('/api/admin/revenue');
-    const data = await res.json();
-    const summary = data.revenue_summary;
+    const data = await fetchJson('/api/admin/revenue');
+    const summary = data.revenue_summary || {};
 
-    document.getElementById('admin-stat-count').innerText = summary.total_transactions;
-    document.getElementById('admin-stat-wages').innerText = `₹${summary.total_job_wages.toLocaleString()}`;
-    document.getElementById('admin-stat-commission').innerText = `₹${summary.total_commission_earned.toLocaleString()}`;
-    document.getElementById('admin-stat-pending').innerText = `₹${summary.pending_commission.toLocaleString()}`;
+    document.getElementById('admin-stat-count').innerText = summary.total_transactions || 0;
+    document.getElementById('admin-stat-wages').innerText = `₹${(summary.total_job_wages || 0).toLocaleString()}`;
+    document.getElementById('admin-stat-commission').innerText = `₹${(summary.total_commission_earned || 0).toLocaleString()}`;
+    document.getElementById('admin-stat-pending').innerText = `₹${(summary.pending_commission || 0).toLocaleString()}`;
 
     const tbody = document.getElementById('admin-transactions-body');
     if (!data.recent_transactions || data.recent_transactions.length === 0) {
@@ -469,3 +480,4 @@ function escapeHtml(str) {
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
 }
+

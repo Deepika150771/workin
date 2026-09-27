@@ -10,26 +10,37 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '../public')));
 
-// Initialize Database schema and seed data
-initDb().then(() => {
+let initPromise = initDb().then(() => {
   console.log('Database initialized successfully.');
 }).catch((err) => {
   console.error('Failed to initialize database:', err);
 });
 
+// Middleware to ensure DB is initialized before processing request
+app.use(async (req, res, next) => {
+  try {
+    await initPromise;
+    next();
+  } catch (err) {
+    res.status(500).json({ error: 'Database initialization failed: ' + err.message });
+  }
+});
+
+const apiRouter = express.Router();
+
 // GET /api/config — Get system config (e.g., default commission rate)
-app.get('/api/config', async (req, res) => {
+apiRouter.get('/config', async (req, res, next) => {
   try {
     const row = await get(`SELECT value FROM config WHERE key = 'default_commission_rate'`);
     const defaultRate = row ? parseFloat(row.value) : 0.08;
     res.json({ default_commission_rate: defaultRate, commission_percentage: defaultRate * 100 });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 });
 
-// PUT /api/config/commission-rate — Update global default commission rate (Configurable)
-app.put('/api/config/commission-rate', async (req, res) => {
+// PUT /api/config/commission-rate — Update global default commission rate
+apiRouter.put('/config/commission-rate', async (req, res, next) => {
   try {
     const { rate } = req.body;
     if (rate === undefined || isNaN(rate) || rate < 0 || rate > 1) {
@@ -38,43 +49,43 @@ app.put('/api/config/commission-rate', async (req, res) => {
     await run(`INSERT OR REPLACE INTO config (key, value) VALUES ('default_commission_rate', ?)`, [rate.toString()]);
     res.json({ message: 'Default commission rate updated', default_commission_rate: parseFloat(rate) });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 });
 
 // GET /api/employers — List all employers
-app.get('/api/employers', async (req, res) => {
+apiRouter.get('/employers', async (req, res, next) => {
   try {
     const employers = await all(`SELECT * FROM employers ORDER BY id DESC`);
     res.json(employers);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 });
 
 // GET /api/employer/:id — Get employer profile
-app.get('/api/employer/:id', async (req, res) => {
+apiRouter.get('/employer/:id', async (req, res, next) => {
   try {
     const employer = await get(`SELECT * FROM employers WHERE id = ?`, [req.params.id]);
     if (!employer) return res.status(404).json({ error: 'Employer not found' });
     res.json(employer);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 });
 
 // GET /api/workers — List all workers
-app.get('/api/workers', async (req, res) => {
+apiRouter.get('/workers', async (req, res, next) => {
   try {
     const workers = await all(`SELECT * FROM workers ORDER BY id DESC`);
     res.json(workers);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 });
 
 // GET /api/jobs — List all jobs
-app.get('/api/jobs', async (req, res) => {
+apiRouter.get('/jobs', async (req, res, next) => {
   try {
     const jobs = await all(`
       SELECT j.*, 
@@ -87,12 +98,12 @@ app.get('/api/jobs', async (req, res) => {
     `);
     res.json(jobs);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 });
 
 // POST /api/jobs — Post a new job
-app.post('/api/jobs', async (req, res) => {
+apiRouter.post('/jobs', async (req, res, next) => {
   try {
     const { title, category, employer_id, wage_amount, location, job_date, description, custom_commission_rate } = req.body;
     
@@ -100,7 +111,6 @@ app.post('/api/jobs', async (req, res) => {
       return res.status(400).json({ error: 'Missing required job fields (title, category, employer_id, wage_amount, location)' });
     }
 
-    // Determine commission rate: custom rate if provided, else employer's default rate, else system default
     let rate = custom_commission_rate;
     if (rate === undefined || rate === null) {
       const emp = await get(`SELECT commission_rate FROM employers WHERE id = ?`, [employer_id]);
@@ -124,15 +134,15 @@ app.post('/api/jobs', async (req, res) => {
       job: newJob
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 });
 
 // POST /api/jobs/:id/complete — Simple two-way confirmation & completion logic
-app.post('/api/jobs/:id/complete', async (req, res) => {
+apiRouter.post('/jobs/:id/complete', async (req, res, next) => {
   try {
     const jobId = req.params.id;
-    const { confirmed_by } = req.body; // 'employer', 'worker', or 'both'
+    const { confirmed_by } = req.body;
 
     const job = await get(`SELECT * FROM jobs WHERE id = ?`, [jobId]);
     if (!job) {
@@ -163,13 +173,11 @@ app.post('/api/jobs/:id/complete', async (req, res) => {
         updatedPaymentStatus = 'job_completed';
       }
 
-      // Calculate commission & total amount
       const wage = parseFloat(job.wage_amount);
       const rate = parseFloat(job.commission_rate || 0.08);
       const commissionAmount = Math.round(wage * rate * 100) / 100;
       const totalAmount = Math.round((wage + commissionAmount) * 100) / 100;
 
-      // Check if transaction already exists for this job
       const existingTx = await get(`SELECT * FROM transactions WHERE job_id = ?`, [jobId]);
       if (existingTx) {
         transaction = existingTx;
@@ -183,7 +191,6 @@ app.post('/api/jobs/:id/complete', async (req, res) => {
       }
     }
 
-    // Update job record
     await run(`
       UPDATE jobs 
       SET employer_confirmed = ?, worker_confirmed = ?, status = ?, payment_status = ?
@@ -210,12 +217,12 @@ app.post('/api/jobs/:id/complete', async (req, res) => {
       } : null
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 });
 
 // GET /api/employer/:id/transactions — Returns employer's payment history
-app.get('/api/employer/:id/transactions', async (req, res) => {
+apiRouter.get('/employer/:id/transactions', async (req, res, next) => {
   try {
     const employerId = req.params.id;
     const transactions = await all(`
@@ -229,28 +236,27 @@ app.get('/api/employer/:id/transactions', async (req, res) => {
       ORDER BY t.created_at DESC
     `, [employerId]);
 
-    // Calculate totals for employer
-    const totals = transactions.reduce((acc, tx) => {
+    const totals = (transactions || []).reduce((acc, tx) => {
       acc.total_jobs += 1;
-      acc.total_wages += tx.wage_amount;
-      acc.total_commission += tx.commission_amount;
-      acc.total_paid += (tx.status === 'commission_paid' ? tx.total_amount : 0);
-      acc.total_pending += (tx.status === 'pending' ? tx.total_amount : 0);
+      acc.total_wages += tx.wage_amount || 0;
+      acc.total_commission += tx.commission_amount || 0;
+      acc.total_paid += (tx.status === 'commission_paid' ? tx.total_amount || 0 : 0);
+      acc.total_pending += (tx.status === 'pending' ? tx.total_amount || 0 : 0);
       return acc;
     }, { total_jobs: 0, total_wages: 0, total_commission: 0, total_paid: 0, total_pending: 0 });
 
     res.json({
       employer_id: parseInt(employerId),
       summary: totals,
-      transactions: transactions
+      transactions: transactions || []
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 });
 
 // GET /api/admin/revenue — Internal tracking/dashboard for total commission earned
-app.get('/api/admin/revenue', async (req, res) => {
+apiRouter.get('/admin/revenue', async (req, res, next) => {
   try {
     const overallStats = await get(`
       SELECT 
@@ -260,7 +266,7 @@ app.get('/api/admin/revenue', async (req, res) => {
         SUM(CASE WHEN status = 'commission_paid' THEN commission_amount ELSE 0 END) as collected_commission,
         SUM(CASE WHEN status = 'pending' THEN commission_amount ELSE 0 END) as pending_commission
       FROM transactions
-    `);
+    `) || {};
 
     const recentTransactions = await all(`
       SELECT t.*, j.title as job_title, e.name as employer_name, w.name as worker_name
@@ -270,7 +276,7 @@ app.get('/api/admin/revenue', async (req, res) => {
       JOIN workers w ON t.worker_id = w.id
       ORDER BY t.created_at DESC
       LIMIT 10
-    `);
+    `) || [];
 
     res.json({
       revenue_summary: {
@@ -284,12 +290,12 @@ app.get('/api/admin/revenue', async (req, res) => {
       recent_transactions: recentTransactions
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 });
 
-// POST /api/transactions/:id/pay — Record payment completion (Pay Now action for MVP)
-app.post('/api/transactions/:id/pay', async (req, res) => {
+// POST /api/transactions/:id/pay — Record payment completion
+apiRouter.post('/transactions/:id/pay', async (req, res, next) => {
   try {
     const txId = req.params.id;
     const tx = await get(`SELECT * FROM transactions WHERE id = ?`, [txId]);
@@ -304,8 +310,18 @@ app.post('/api/transactions/:id/pay', async (req, res) => {
       transaction: updatedTx
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    next(err);
   }
+});
+
+// Mount router on both /api and / so it works regardless of Vercel path rewriting
+app.use('/api', apiRouter);
+app.use('/', apiRouter);
+
+// Catch-all JSON error handler
+app.use((err, req, res, next) => {
+  console.error('Server error:', err);
+  res.status(500).json({ error: err.message || 'Internal Server Error' });
 });
 
 // Start Server
@@ -316,3 +332,4 @@ if (require.main === module) {
 }
 
 module.exports = app;
+
